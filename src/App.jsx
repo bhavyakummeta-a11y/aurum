@@ -182,7 +182,7 @@ function App() {
       {addedItem && <div className="toast"><span>Added to vault cart</span><strong>{addedItem.name}</strong></div>}
 
       <header className="topbar">
-        <button className="brand brand-button logo-brand" onClick={() => changePage('home')} type="button" aria-label="Aurum home"><img src={aurumLogo} alt="" /><span>Aurum</span></button>
+        <button className="brand brand-button logo-brand" onClick={() => changePage('home')} type="button" aria-label="Aurum home"><img src={aurumLogo} alt="Aurum logo" /></button>
         <nav className="section-tabs" aria-label="Primary navigation">
           {pages.map(([id, label]) => <button className={activePage === id ? 'active' : ''} onClick={() => changePage(id)} type="button" key={id}>{label}</button>)}
         </nav>
