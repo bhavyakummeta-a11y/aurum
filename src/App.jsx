@@ -24,6 +24,12 @@ const products = [
 
 const pages = [['home', 'Home'], ['collection', 'Collection'], ['shipping', 'Shipping'], ['checkout', 'Checkout']]
 const categories = ['All', 'Gold', 'Coins', 'Antiques']
+const searchIntents = [
+  { label: 'Investment gold', query: 'gold investment assay sealed swiss' },
+  { label: 'Ancient coins', query: 'ancient coin authenticated byzantine' },
+  { label: 'Estate jewelry', query: 'estate gold bracelet france' },
+  { label: 'Museum antiques', query: 'museum antique provenance restored' },
+]
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
 
 function dimWeight(dimensions) {
@@ -31,10 +37,38 @@ function dimWeight(dimensions) {
   return (length * width * height) / 139
 }
 
+function normalizeText(value) {
+  return value.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+function getSearchText(product) {
+  return normalizeText(`${product.name} ${product.category} ${product.origin} ${product.condition} ${product.rarity} ${product.eta}`)
+}
+
+function rankProduct(product, query) {
+  const normalizedQuery = normalizeText(query)
+  if (!normalizedQuery) return 1
+
+  const tokens = normalizedQuery.split(' ').filter(Boolean)
+  const haystack = getSearchText(product)
+  const name = normalizeText(product.name)
+  const category = normalizeText(product.category)
+  const rarity = normalizeText(product.rarity)
+
+  return tokens.reduce((score, token) => {
+    if (name.includes(token)) return score + 8
+    if (category.includes(token)) return score + 6
+    if (rarity.includes(token)) return score + 5
+    if (haystack.includes(token)) return score + 3
+    return score
+  }, haystack.includes(normalizedQuery) ? 10 : 0)
+}
+
 function App() {
   const [activePage, setActivePage] = useState('home')
   const [activeCategory, setActiveCategory] = useState('All')
   const [query, setQuery] = useState('')
+  const [sortMode, setSortMode] = useState('relevance')
   const [cart, setCart] = useState({})
   const [zip, setZip] = useState('10001')
   const [international, setInternational] = useState(false)
@@ -57,11 +91,33 @@ function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  const visibleProducts = products.filter((product) => {
-    const inCategory = activeCategory === 'All' || product.category === activeCategory
-    const searchable = `${product.name} ${product.origin} ${product.condition} ${product.rarity}`
-    return inCategory && searchable.toLowerCase().includes(query.toLowerCase())
-  })
+  const searchResults = useMemo(() => {
+    const ranked = products
+      .map((product) => ({ product, score: rankProduct(product, query) }))
+      .filter(({ product, score }) => {
+        const inCategory = activeCategory === 'All' || product.category === activeCategory
+        return inCategory && score > 0
+      })
+
+    return ranked.sort((a, b) => {
+      if (sortMode === 'price-low') return a.product.price - b.product.price
+      if (sortMode === 'price-high') return b.product.price - a.product.price
+      if (sortMode === 'weight') return b.product.weight - a.product.weight
+      return b.score - a.score || a.product.price - b.product.price
+    })
+  }, [activeCategory, query, sortMode])
+
+  const visibleProducts = searchResults.map(({ product }) => product)
+  const searchSignals = useMemo(() => {
+    const top = searchResults[0]
+    const categoriesFound = [...new Set(visibleProducts.map((product) => product.category))]
+    const avgPrice = visibleProducts.length ? visibleProducts.reduce((sum, product) => sum + product.price, 0) / visibleProducts.length : 0
+    return {
+      topMatch: top?.product.name || 'No match yet',
+      categories: categoriesFound.join(', ') || 'Try a broader search',
+      avgPrice,
+    }
+  }, [searchResults, visibleProducts])
 
   const cartItems = useMemo(
     () => products.filter((product) => cart[product.id]).map((product) => ({ ...product, quantity: cart[product.id] })),
@@ -191,7 +247,7 @@ function App() {
 
       <div className="page-shell" key={activePage}>
         {activePage === 'home' && <HomeView favorite={favorite} user={user} addAndOpen={addAndOpen} firebaseReady={firebaseReady} changePage={changePage} />}
-        {activePage === 'collection' && <CollectionView visibleProducts={visibleProducts} activeCategory={activeCategory} setActiveCategory={setActiveCategory} query={query} setQuery={setQuery} addToCart={addToCart} selectedProduct={selectedProduct} setSelectedProduct={setSelectedProduct} addAndOpen={addAndOpen} />}
+        {activePage === 'collection' && <CollectionView visibleProducts={visibleProducts} activeCategory={activeCategory} setActiveCategory={setActiveCategory} query={query} setQuery={setQuery} sortMode={sortMode} setSortMode={setSortMode} searchSignals={searchSignals} addToCart={addToCart} selectedProduct={selectedProduct} setSelectedProduct={setSelectedProduct} addAndOpen={addAndOpen} />}
         {activePage === 'shipping' && <ShippingView zip={zip} setZip={setZip} international={international} setInternational={setInternational} totals={totals} packingPlan={packingPlan} />}
         {activePage === 'checkout' && <CheckoutView cartCount={cartCount} cartItems={cartItems} changeQuantity={changeQuantity} totals={totals} beginCheckout={beginCheckout} />}
       </div>
@@ -207,8 +263,8 @@ function HomeView({ favorite, user, addAndOpen, firebaseReady, changePage }) {
   return <><section className="hero page-view"><div className="hero-media" aria-hidden="true" /><div className="hero-content"><p className="eyebrow">Authenticated precious assets</p><h1>Aurum</h1><p>A premium marketplace for investment gold, rare coins, and antique objects with intelligent shipping estimates before checkout.</p><div className="hero-actions"><button className="button primary" onClick={() => changePage('collection')} type="button">Shop collection</button><button className="button secondary" onClick={() => addAndOpen(favorite.id)} type="button">Reserve featured piece</button></div></div></section><section className="trust-band flow-bridge" aria-label="Store assurances"><div><span>01</span> Third-party authentication</div><div><span>02</span> DIM weight rate previews</div><div><span>03</span> Cross-border duty estimates</div><div><span>04</span> Insured signature delivery</div></section><section className="market-strip flow-bridge" aria-label="Market highlights"><div><span>Gold desk</span><strong>Spot-aware placeholders</strong></div><div><span>Vault score</span><strong>98.6% verified lots</strong></div><div><span>Firebase</span><strong>{firebaseReady ? 'Auth and Firestore enabled' : 'Add env values to enable'}</strong></div></section></>
 }
 
-function CollectionView({ visibleProducts, activeCategory, setActiveCategory, query, setQuery, addToCart, selectedProduct, setSelectedProduct, addAndOpen }) {
-  return <><section className="collection page-view"><div className="section-head"><div><p className="eyebrow">Curated inventory</p><h2>Gold, coins, and antiques</h2></div><label className="search-box"><span>Search</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Origin, condition, or item" /></label></div><div className="category-tabs" role="tablist" aria-label="Categories">{categories.map((category) => <button key={category} className={category === activeCategory ? 'active' : ''} onClick={() => setActiveCategory(category)} type="button">{category}</button>)}</div><div className="product-grid">{visibleProducts.map((product, index) => <article className="product-card" style={{ '--delay': `${index * 70}ms` }} key={product.id} onMouseEnter={() => setSelectedProduct(product)}><button className="image-button" onClick={() => setSelectedProduct(product)} type="button"><img src={product.image} alt="" /><span>{product.rarity}</span></button><div className="product-body"><div className="product-meta"><span>{product.category}</span><span>{product.condition}</span></div><h3>{product.name}</h3><p>{product.origin} · {product.eta}</p><dl><div><dt>Weight</dt><dd>{product.weight.toFixed(2)} lb</dd></div><div><dt>Size</dt><dd>{product.dimensions.join(' x ')} in</dd></div></dl><div className="product-footer"><strong>{money.format(product.price)}</strong><button className="add-button" onClick={() => addToCart(product.id)} type="button">Add to cart</button></div></div></article>)}</div></section><section className="showcase flow-feature" aria-label="Selected item detail"><div className="showcase-copy"><p className="eyebrow">Object focus</p><h2>{selectedProduct.name}</h2><p>{selectedProduct.condition} from {selectedProduct.origin}. Includes placeholder provenance, insured packing, dimensional-weight shipping estimate, and buyer review before checkout.</p><div className="certificate"><span>Certificate ID</span><strong>AUR-{selectedProduct.id}9{selectedProduct.category.slice(0, 2).toUpperCase()}-VAULT</strong></div><button onClick={() => addAndOpen(selectedProduct.id)} type="button">Reserve this asset</button></div><img src={selectedProduct.image} alt="" /></section></>
+function CollectionView({ visibleProducts, activeCategory, setActiveCategory, query, setQuery, sortMode, setSortMode, searchSignals, addToCart, selectedProduct, setSelectedProduct, addAndOpen }) {
+  return <><section className="collection page-view"><div className="section-head discovery-head"><div><p className="eyebrow">Curated inventory</p><h2>Gold, coins, and antiques</h2></div><div className="discovery-controls"><label className="search-box"><span>Search</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Try ancient coin, assay, estate, museum" /></label><label className="sort-box"><span>Sort</span><select value={sortMode} onChange={(event) => setSortMode(event.target.value)}><option value="relevance">Relevance</option><option value="price-low">Price low to high</option><option value="price-high">Price high to low</option><option value="weight">Heaviest first</option></select></label></div></div><div className="intent-row" aria-label="Suggested searches">{searchIntents.map((intent) => <button key={intent.label} onClick={() => setQuery(intent.query)} type="button">{intent.label}</button>)}{query && <button className="clear-search" onClick={() => setQuery('')} type="button">Clear search</button>}</div><div className="category-tabs" role="tablist" aria-label="Categories">{categories.map((category) => <button key={category} className={category === activeCategory ? 'active' : ''} onClick={() => setActiveCategory(category)} type="button">{category}</button>)}</div><div className="search-intel" aria-label="Search intelligence"><div><span>Results</span><strong>{visibleProducts.length}</strong></div><div><span>Top match</span><strong>{searchSignals.topMatch}</strong></div><div><span>Categories</span><strong>{searchSignals.categories}</strong></div><div><span>Avg. price</span><strong>{visibleProducts.length ? money.format(searchSignals.avgPrice) : '-'}</strong></div></div>{visibleProducts.length === 0 ? <div className="empty-results"><p className="eyebrow">No matched lots</p><h3>Try a broader collector phrase.</h3><p>Search by material, era, country, condition, rarity, or delivery need.</p><button onClick={() => { setQuery('gold coin authenticated'); setActiveCategory('All') }} type="button">Search authenticated gold coins</button></div> : <div className="product-grid">{visibleProducts.map((product, index) => <article className="product-card" style={{ '--delay': `${index * 70}ms` }} key={product.id} onMouseEnter={() => setSelectedProduct(product)}><button className="image-button" onClick={() => setSelectedProduct(product)} type="button"><img src={product.image} alt="" /><span>{product.rarity}</span></button><div className="product-body"><div className="product-meta"><span>{product.category}</span><span>{product.condition}</span></div><h3>{product.name}</h3><p>{product.origin} · {product.eta}</p><dl><div><dt>Weight</dt><dd>{product.weight.toFixed(2)} lb</dd></div><div><dt>Size</dt><dd>{product.dimensions.join(' x ')} in</dd></div></dl><div className="product-footer"><strong>{money.format(product.price)}</strong><button className="add-button" onClick={() => addToCart(product.id)} type="button">Add to cart</button></div></div></article>)}</div>}</section><section className="showcase flow-feature" aria-label="Selected item detail"><div className="showcase-copy"><p className="eyebrow">Object focus</p><h2>{selectedProduct.name}</h2><p>{selectedProduct.condition} from {selectedProduct.origin}. Includes placeholder provenance, insured packing, dimensional-weight shipping estimate, and buyer review before checkout.</p><div className="certificate"><span>Certificate ID</span><strong>AUR-{selectedProduct.id}9{selectedProduct.category.slice(0, 2).toUpperCase()}-VAULT</strong></div><button onClick={() => addAndOpen(selectedProduct.id)} type="button">Reserve this asset</button></div><img src={selectedProduct.image} alt="" /></section></>
 }
 
 function ShippingView({ zip, setZip, international, setInternational, totals, packingPlan }) {
