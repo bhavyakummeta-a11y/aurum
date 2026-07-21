@@ -107,6 +107,7 @@ function App() {
   const [selectedProduct, setSelectedProduct] = useState(products[4])
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [checkoutStep, setCheckoutStep] = useState(1)
+  const [guestCheckout, setGuestCheckout] = useState(false)
   const [authOpen, setAuthOpen] = useState(false)
   const [authMode, setAuthMode] = useState('sign-in')
   const [authRole, setAuthRole] = useState('collector')
@@ -227,8 +228,16 @@ function App() {
     setActivePage('checkout')
     setCheckoutOpen(true)
     setCheckoutStep(user ? 2 : 1)
+    setGuestCheckout(false)
     setCartOpen(false)
     setOrderStatus('')
+  }
+
+  function openAuthFor(role = 'collector', mode = 'sign-in') {
+    setAuthRole(role)
+    setAuthMode(mode)
+    setAuthError('')
+    setAuthOpen(true)
   }
 
   async function handleAuthSubmit(event) {
@@ -271,8 +280,14 @@ function App() {
   }
 
   async function placeOrder() {
-    setOrderStatus('Saving reservation...')
+    setOrderStatus(guestCheckout && !user ? 'Preparing guest reservation...' : 'Saving reservation...')
     try {
+      if (!user && guestCheckout) {
+        setOrderStatus('Guest checkout ready. Your reservation can continue without an account; create a Collector account later to save order history.')
+        setCart({})
+        window.setTimeout(() => setCheckoutOpen(false), 1800)
+        return
+      }
       await saveOrder({
         userId: user?.uid || 'guest',
         email: user?.email || authForm.email || 'guest',
@@ -297,7 +312,7 @@ function App() {
         <nav className="section-tabs" aria-label="Primary navigation">
           {navPages.map(([id, label]) => <button className={activePage === id ? 'active' : ''} onClick={() => changePage(id)} type="button" key={id}>{label}</button>)}
         </nav>
-        <div className="top-actions">{user ? <><button className="account-trigger" onClick={() => changePage('dashboard')} type="button">{roleLabels[userProfile?.role] || 'Account'}</button><button className="account-trigger" onClick={handleSignOut} type="button">Sign out</button></> : <button className="account-trigger" onClick={() => setAuthOpen(true)} type="button">Sign in</button>}<button className="cart-trigger" onClick={() => setCartOpen(true)} type="button"><span>Cart</span><strong>{cartCount}</strong></button></div>
+        <div className="top-actions">{user ? <><button className="account-trigger" onClick={() => changePage('dashboard')} type="button">{roleLabels[userProfile?.role] || 'Account'}</button><button className="account-trigger" onClick={handleSignOut} type="button">Sign out</button></> : <button className="account-trigger" onClick={() => openAuthFor('collector', 'sign-in')} type="button">Sign in</button>}<button className="cart-trigger" onClick={() => setCartOpen(true)} type="button"><span>Cart</span><strong>{cartCount}</strong></button></div>
       </header>
 
       <div className="page-shell" key={activePage}>
@@ -305,11 +320,11 @@ function App() {
         {activePage === 'collection' && <CollectionView visibleProducts={visibleProducts} activeCategory={activeCategory} setActiveCategory={setActiveCategory} query={query} setQuery={setQuery} sortMode={sortMode} setSortMode={setSortMode} searchSignals={searchSignals} addToCart={addToCart} selectedProduct={selectedProduct} setSelectedProduct={setSelectedProduct} addAndOpen={addAndOpen} />}
         {activePage === 'shipping' && <ShippingView zip={zip} setZip={setZip} international={international} setInternational={setInternational} totals={totals} packingPlan={packingPlan} />}
         {activePage === 'checkout' && <CheckoutView cartCount={cartCount} cartItems={cartItems} changeQuantity={changeQuantity} totals={totals} beginCheckout={beginCheckout} />}
-        {activePage === 'dashboard' && <DashboardView user={user} profile={userProfile} changePage={changePage} openAuth={() => setAuthOpen(true)} />}
+        {activePage === 'dashboard' && <DashboardView user={user} profile={userProfile} changePage={changePage} openAuth={openAuthFor} />}
       </div>
 
       {cartOpen && <CartDrawer cartCount={cartCount} cartItems={cartItems} changeQuantity={changeQuantity} totals={totals} beginCheckout={beginCheckout} close={() => setCartOpen(false)} />}
-      {checkoutOpen && <CheckoutModal checkoutStep={checkoutStep} setCheckoutStep={setCheckoutStep} user={user} openAuth={() => setAuthOpen(true)} totals={totals} orderStatus={orderStatus} placeOrder={placeOrder} close={() => setCheckoutOpen(false)} />}
+      {checkoutOpen && <CheckoutModal checkoutStep={checkoutStep} setCheckoutStep={setCheckoutStep} user={user} guestCheckout={guestCheckout} setGuestCheckout={setGuestCheckout} openAuth={openAuthFor} totals={totals} orderStatus={orderStatus} placeOrder={placeOrder} close={() => setCheckoutOpen(false)} />}
       {authOpen && <AuthModal authMode={authMode} setAuthMode={setAuthMode} authRole={authRole} setAuthRole={setAuthRole} authForm={authForm} setAuthForm={setAuthForm} authError={authError} handleAuthSubmit={handleAuthSubmit} handleGoogleSignIn={handleGoogleSignIn} close={() => setAuthOpen(false)} />}
     </main>
   )
@@ -335,8 +350,8 @@ function CartDrawer({ cartCount, cartItems, changeQuantity, totals, beginCheckou
   return <div className="drawer-shell" role="dialog" aria-modal="true" aria-label="Shopping cart"><button className="drawer-backdrop" onClick={close} type="button" aria-label="Close cart" /><aside className="cart-drawer"><div className="drawer-head"><div><p className="eyebrow">Vault cart</p><h2>{cartCount} item{cartCount === 1 ? '' : 's'}</h2></div><button onClick={close} type="button">Close</button></div>{cartItems.length === 0 ? <p className="empty-cart">Your cart is ready for rare finds.</p> : <CartItems items={cartItems} changeQuantity={changeQuantity} />}<OrderSummary totals={totals} beginCheckout={beginCheckout} disabled={!cartItems.length} compact /></aside></div>
 }
 
-function CheckoutModal({ checkoutStep, setCheckoutStep, user, openAuth, totals, orderStatus, placeOrder, close }) {
-  return <div className="checkout-modal" role="dialog" aria-modal="true" aria-label="Checkout"><div className="checkout-card"><button className="modal-close" onClick={close} type="button">Close</button><p className="eyebrow">Private checkout</p><h2>Complete your reservation</h2><div className="steps"><button className={checkoutStep === 1 ? 'active' : ''} onClick={() => setCheckoutStep(1)} type="button">1 Account</button><button className={checkoutStep === 2 ? 'active' : ''} onClick={() => setCheckoutStep(2)} type="button">2 Delivery</button><button className={checkoutStep === 3 ? 'active' : ''} onClick={() => setCheckoutStep(3)} type="button">3 Review</button></div>{checkoutStep === 1 && <AccountStep user={user} openAuth={openAuth} />}{checkoutStep === 2 && <CheckoutFields labels={['Street address', 'City', 'Country']} />}{checkoutStep === 3 && <div className="review-box"><strong>{money.format(totals.grandTotal)}</strong><span>{firebaseReady ? 'Reservation will save to Firestore.' : 'Add Firebase env values before saving live orders.'}</span>{orderStatus && <em>{orderStatus}</em>}</div>}<div className="modal-actions"><button onClick={() => setCheckoutStep((step) => Math.max(1, step - 1))} type="button">Back</button><button onClick={() => checkoutStep === 3 ? placeOrder() : setCheckoutStep((step) => step + 1)} type="button">{checkoutStep === 3 ? 'Place demo order' : 'Continue'}</button></div></div></div>
+function CheckoutModal({ checkoutStep, setCheckoutStep, user, guestCheckout, setGuestCheckout, openAuth, totals, orderStatus, placeOrder, close }) {
+  return <div className="checkout-modal" role="dialog" aria-modal="true" aria-label="Checkout"><div className="checkout-card"><button className="modal-close" onClick={close} type="button">Close</button><p className="eyebrow">Private checkout</p><h2>Complete your reservation</h2><div className="steps"><button className={checkoutStep === 1 ? 'active' : ''} onClick={() => setCheckoutStep(1)} type="button">1 Account</button><button className={checkoutStep === 2 ? 'active' : ''} onClick={() => setCheckoutStep(2)} type="button">2 Delivery</button><button className={checkoutStep === 3 ? 'active' : ''} onClick={() => setCheckoutStep(3)} type="button">3 Review</button></div>{checkoutStep === 1 && <AccountStep user={user} guestCheckout={guestCheckout} setGuestCheckout={setGuestCheckout} setCheckoutStep={setCheckoutStep} openAuth={openAuth} />}{checkoutStep === 2 && <CheckoutFields labels={['Street address', 'City', 'Country']} />}{checkoutStep === 3 && <div className="review-box"><strong>{money.format(totals.grandTotal)}</strong><span>{user ? 'Reservation will save to your Collector account in Firestore.' : guestCheckout ? 'Guest checkout will continue without saving an account dashboard history.' : 'Choose guest checkout, create an account, or sign in before placing the order.'}</span>{orderStatus && <em>{orderStatus}</em>}</div>}<div className="modal-actions"><button onClick={() => setCheckoutStep((step) => Math.max(1, step - 1))} type="button">Back</button><button onClick={() => checkoutStep === 3 ? placeOrder() : setCheckoutStep((step) => step + 1)} type="button" disabled={checkoutStep === 1 && !user && !guestCheckout}>{checkoutStep === 3 ? 'Place demo order' : 'Continue'}</button></div></div></div>
 }
 
 function AuthModal({ authMode, setAuthMode, authRole, setAuthRole, authForm, setAuthForm, authError, handleAuthSubmit, handleGoogleSignIn, close }) {
@@ -368,9 +383,9 @@ function OrderSummary({ totals, beginCheckout, disabled, compact = false }) {
   return <aside className={compact ? 'summary-panel compact-summary' : 'summary-panel'} aria-label="Order summary"><h2>Order summary</h2><SummaryRow label="Merchandise" value={money.format(totals.subtotal)} /><SummaryRow label="Insured shipping" value={money.format(totals.shipping)} /><SummaryRow label="Insurance" value={money.format(totals.insurance)} /><SummaryRow label="Import duties" value={money.format(totals.duties)} /><SummaryRow label="Billable weight" value={`${totals.billableWeight.toFixed(2)} lb`} /><div className="grand-total"><span>Total</span><strong>{money.format(totals.grandTotal)}</strong></div><button className="checkout-button" disabled={disabled} onClick={beginCheckout} type="button">Continue securely</button></aside>
 }
 
-function AccountStep({ user, openAuth }) {
+function AccountStep({ user, guestCheckout, setGuestCheckout, setCheckoutStep, openAuth }) {
   if (user) return <div className="review-box"><strong>{user.email}</strong><span>Signed in and ready for saved reservations.</span></div>
-  return <div className="review-box"><strong>Sign in recommended</strong><span>Create an account to save reservations and order history in Firestore.</span><button onClick={openAuth} type="button">Sign in or create account</button></div>
+  return <div className="buyer-choice"><div className="review-box"><strong>How would you like to checkout?</strong><span>Collectors can continue as a guest, create an account, or sign in. Consignors must use an account to list inventory.</span></div><div className="checkout-choice-grid"><button className={guestCheckout ? 'active' : ''} onClick={() => { setGuestCheckout(true); setCheckoutStep(2) }} type="button"><span>Continue as guest</span><small>Fast checkout without dashboard history.</small></button><button onClick={() => openAuth('collector', 'create')} type="button"><span>Create Collector account</span><small>Save reservations and order history.</small></button><button onClick={() => openAuth('collector', 'sign-in')} type="button"><span>Sign in</span><small>Use an existing Collector account.</small></button></div></div>
 }
 
 function CheckoutFields({ labels }) {
