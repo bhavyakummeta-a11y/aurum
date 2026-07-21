@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import './App.css'
+import './role.css'
 import aurumLogo from './assets/aurum-logo.png'
 import {
   createAccount,
   firebaseReady,
+  getUserProfile,
   saveOrder,
   signInWithEmail,
-  signInWithGoogle,
+  signInWithGoogleRole,
   signOutUser,
   subscribeToUser,
 } from './firebase'
@@ -23,6 +25,7 @@ const products = [
 ]
 
 const pages = [['home', 'Home'], ['collection', 'Collection'], ['shipping', 'Shipping'], ['checkout', 'Checkout']]
+const roleLabels = { collector: 'Collector', consignor: 'Consignor' }
 const categories = ['All', 'Gold', 'Coins', 'Antiques']
 const searchIntents = [
   { label: 'Investment gold', query: 'gold investment assay sealed swiss' },
@@ -79,15 +82,31 @@ function App() {
   const [checkoutStep, setCheckoutStep] = useState(1)
   const [authOpen, setAuthOpen] = useState(false)
   const [authMode, setAuthMode] = useState('sign-in')
+  const [authRole, setAuthRole] = useState('collector')
   const [authForm, setAuthForm] = useState({ email: '', password: '' })
   const [user, setUser] = useState(null)
+  const [userProfile, setUserProfile] = useState(null)
   const [authError, setAuthError] = useState('')
   const [orderStatus, setOrderStatus] = useState('')
 
   useEffect(() => subscribeToUser(setUser), [])
 
+  useEffect(() => {
+    let active = true
+    if (!user) {
+      setUserProfile(null)
+      return () => { active = false }
+    }
+    getUserProfile(user.uid)
+      .then((profile) => { if (active) setUserProfile(profile) })
+      .catch(() => { if (active) setUserProfile(null) })
+    return () => { active = false }
+  }, [user])
+
   function changePage(page) {
-    setActivePage(page)
+    if (page === activePage) return
+    if (document.startViewTransition) document.startViewTransition(() => setActivePage(page))
+    else setActivePage(page)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
@@ -126,6 +145,7 @@ function App() {
 
   const cartCount = cartItems.reduce((sum, item) => sum + item.quantity, 0)
   const favorite = products.find((product) => product.id === 5)
+  const navPages = user ? [...pages, ['dashboard', userProfile?.role === 'consignor' ? 'Consignor desk' : 'Dashboard']] : pages
 
   const totals = useMemo(() => {
     const subtotal = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0)
@@ -188,9 +208,10 @@ function App() {
     event.preventDefault()
     setAuthError('')
     try {
-      if (authMode === 'create') await createAccount(authForm.email, authForm.password)
-      else await signInWithEmail(authForm.email, authForm.password)
+      if (authMode === 'create') await createAccount(authForm.email, authForm.password, authRole)
+      else await signInWithEmail(authForm.email, authForm.password, authRole)
       setAuthOpen(false)
+      setActivePage('dashboard')
     } catch (error) {
       setAuthError(error.message)
     }
@@ -199,8 +220,9 @@ function App() {
   async function handleGoogleSignIn() {
     setAuthError('')
     try {
-      await signInWithGoogle()
+      await signInWithGoogleRole(authRole)
       setAuthOpen(false)
+      setActivePage('dashboard')
     } catch (error) {
       setAuthError(error.message)
     }
@@ -210,6 +232,7 @@ function App() {
     setAuthError('')
     try {
       await signOutUser()
+      setActivePage('home')
     } catch (error) {
       setAuthError(error.message)
     }
@@ -240,9 +263,9 @@ function App() {
       <header className="topbar">
         <button className="brand brand-button logo-brand" onClick={() => changePage('home')} type="button" aria-label="Aurum home"><img src={aurumLogo} alt="Aurum logo" /></button>
         <nav className="section-tabs" aria-label="Primary navigation">
-          {pages.map(([id, label]) => <button className={activePage === id ? 'active' : ''} onClick={() => changePage(id)} type="button" key={id}>{label}</button>)}
+          {navPages.map(([id, label]) => <button className={activePage === id ? 'active' : ''} onClick={() => changePage(id)} type="button" key={id}>{label}</button>)}
         </nav>
-        <div className="top-actions"><button className="account-trigger" onClick={() => user ? handleSignOut() : setAuthOpen(true)} type="button">{user ? `Sign out ${user.email?.split('@')[0] || 'user'}` : 'Sign in'}</button><button className="cart-trigger" onClick={() => setCartOpen(true)} type="button"><span>Cart</span><strong>{cartCount}</strong></button></div>
+        <div className="top-actions">{user ? <><button className="account-trigger" onClick={() => changePage('dashboard')} type="button">{roleLabels[userProfile?.role] || 'Account'}</button><button className="account-trigger" onClick={handleSignOut} type="button">Sign out</button></> : <button className="account-trigger" onClick={() => setAuthOpen(true)} type="button">Sign in</button>}<button className="cart-trigger" onClick={() => setCartOpen(true)} type="button"><span>Cart</span><strong>{cartCount}</strong></button></div>
       </header>
 
       <div className="page-shell" key={activePage}>
@@ -250,11 +273,12 @@ function App() {
         {activePage === 'collection' && <CollectionView visibleProducts={visibleProducts} activeCategory={activeCategory} setActiveCategory={setActiveCategory} query={query} setQuery={setQuery} sortMode={sortMode} setSortMode={setSortMode} searchSignals={searchSignals} addToCart={addToCart} selectedProduct={selectedProduct} setSelectedProduct={setSelectedProduct} addAndOpen={addAndOpen} />}
         {activePage === 'shipping' && <ShippingView zip={zip} setZip={setZip} international={international} setInternational={setInternational} totals={totals} packingPlan={packingPlan} />}
         {activePage === 'checkout' && <CheckoutView cartCount={cartCount} cartItems={cartItems} changeQuantity={changeQuantity} totals={totals} beginCheckout={beginCheckout} />}
+        {activePage === 'dashboard' && <DashboardView user={user} profile={userProfile} changePage={changePage} openAuth={() => setAuthOpen(true)} />}
       </div>
 
       {cartOpen && <CartDrawer cartCount={cartCount} cartItems={cartItems} changeQuantity={changeQuantity} totals={totals} beginCheckout={beginCheckout} close={() => setCartOpen(false)} />}
       {checkoutOpen && <CheckoutModal checkoutStep={checkoutStep} setCheckoutStep={setCheckoutStep} user={user} openAuth={() => setAuthOpen(true)} totals={totals} orderStatus={orderStatus} placeOrder={placeOrder} close={() => setCheckoutOpen(false)} />}
-      {authOpen && <AuthModal authMode={authMode} setAuthMode={setAuthMode} authForm={authForm} setAuthForm={setAuthForm} authError={authError} handleAuthSubmit={handleAuthSubmit} handleGoogleSignIn={handleGoogleSignIn} close={() => setAuthOpen(false)} />}
+      {authOpen && <AuthModal authMode={authMode} setAuthMode={setAuthMode} authRole={authRole} setAuthRole={setAuthRole} authForm={authForm} setAuthForm={setAuthForm} authError={authError} handleAuthSubmit={handleAuthSubmit} handleGoogleSignIn={handleGoogleSignIn} close={() => setAuthOpen(false)} />}
     </main>
   )
 }
@@ -283,8 +307,25 @@ function CheckoutModal({ checkoutStep, setCheckoutStep, user, openAuth, totals, 
   return <div className="checkout-modal" role="dialog" aria-modal="true" aria-label="Checkout"><div className="checkout-card"><button className="modal-close" onClick={close} type="button">Close</button><p className="eyebrow">Private checkout</p><h2>Complete your reservation</h2><div className="steps"><button className={checkoutStep === 1 ? 'active' : ''} onClick={() => setCheckoutStep(1)} type="button">1 Account</button><button className={checkoutStep === 2 ? 'active' : ''} onClick={() => setCheckoutStep(2)} type="button">2 Delivery</button><button className={checkoutStep === 3 ? 'active' : ''} onClick={() => setCheckoutStep(3)} type="button">3 Review</button></div>{checkoutStep === 1 && <AccountStep user={user} openAuth={openAuth} />}{checkoutStep === 2 && <CheckoutFields labels={['Street address', 'City', 'Country']} />}{checkoutStep === 3 && <div className="review-box"><strong>{money.format(totals.grandTotal)}</strong><span>{firebaseReady ? 'Reservation will save to Firestore.' : 'Add Firebase env values before saving live orders.'}</span>{orderStatus && <em>{orderStatus}</em>}</div>}<div className="modal-actions"><button onClick={() => setCheckoutStep((step) => Math.max(1, step - 1))} type="button">Back</button><button onClick={() => checkoutStep === 3 ? placeOrder() : setCheckoutStep((step) => step + 1)} type="button">{checkoutStep === 3 ? 'Place demo order' : 'Continue'}</button></div></div></div>
 }
 
-function AuthModal({ authMode, setAuthMode, authForm, setAuthForm, authError, handleAuthSubmit, handleGoogleSignIn, close }) {
-  return <div className="checkout-modal" role="dialog" aria-modal="true" aria-label="Account sign in"><form className="checkout-card auth-card" onSubmit={handleAuthSubmit}><button className="modal-close" onClick={close} type="button">Close</button><p className="eyebrow">Collector account</p><h2>{authMode === 'create' ? 'Create your account' : 'Sign in to Aurum'}</h2><p className="firebase-note">{firebaseReady ? 'Firebase Auth is ready for email and Google sign-in.' : 'Add Firebase env values to .env.local and Vercel before live sign-in works.'}</p><div className="checkout-fields auth-fields"><label>Email<input value={authForm.email} onChange={(event) => setAuthForm((form) => ({ ...form, email: event.target.value }))} placeholder="you@example.com" type="email" /></label><label>Password<input value={authForm.password} onChange={(event) => setAuthForm((form) => ({ ...form, password: event.target.value }))} placeholder="At least 6 characters" type="password" /></label></div>{authError && <p className="auth-error">{authError}</p>}<div className="modal-actions auth-actions"><button onClick={() => setAuthMode((mode) => mode === 'create' ? 'sign-in' : 'create')} type="button">{authMode === 'create' ? 'Use sign in' : 'Create account'}</button><button type="submit">{authMode === 'create' ? 'Create account' : 'Sign in'}</button></div><button className="google-button" onClick={handleGoogleSignIn} type="button">Continue with Google</button></form></div>
+function AuthModal({ authMode, setAuthMode, authRole, setAuthRole, authForm, setAuthForm, authError, handleAuthSubmit, handleGoogleSignIn, close }) {
+  const roleCopy = authRole === 'consignor'
+    ? { title: 'Consignor desk', text: 'For approved partners listing gold, coins, antiques, provenance files, and fulfillment details.' }
+    : { title: 'Collector account', text: 'For buyers reserving assets, saving carts, and tracking insured checkout reservations.' }
+  return <div className="checkout-modal" role="dialog" aria-modal="true" aria-label="Account sign in"><form className="checkout-card auth-card" onSubmit={handleAuthSubmit}><button className="modal-close" onClick={close} type="button">Close</button><p className="eyebrow">Choose account type</p><h2>{authMode === 'create' ? `Create ${roleLabels[authRole]} account` : `Sign in as ${roleLabels[authRole]}`}</h2><p className="firebase-note">{roleCopy.text} {firebaseReady ? 'Firebase Auth will lock this email to the selected role.' : 'Add Firebase env values to .env.local and Vercel before live sign-in works.'}</p><div className="role-switch" role="tablist" aria-label="Account type"><button className={authRole === 'collector' ? 'active' : ''} onClick={() => setAuthRole('collector')} type="button"><span>Collector</span><small>Buy and reserve</small></button><button className={authRole === 'consignor' ? 'active' : ''} onClick={() => setAuthRole('consignor')} type="button"><span>Consignor</span><small>List inventory</small></button></div><div className="role-context"><strong>{roleCopy.title}</strong><span>{authMode === 'create' ? 'Registration permanently assigns this role to the account.' : 'Use the same role you selected during registration.'}</span></div><div className="checkout-fields auth-fields"><label>Email<input value={authForm.email} onChange={(event) => setAuthForm((form) => ({ ...form, email: event.target.value }))} placeholder="you@example.com" type="email" /></label><label>Password<input value={authForm.password} onChange={(event) => setAuthForm((form) => ({ ...form, password: event.target.value }))} placeholder="At least 6 characters" type="password" /></label></div>{authError && <p className="auth-error">{authError}</p>}<div className="modal-actions auth-actions"><button onClick={() => setAuthMode((mode) => mode === 'create' ? 'sign-in' : 'create')} type="button">{authMode === 'create' ? 'Use sign in' : 'Create account'}</button><button type="submit">{authMode === 'create' ? `Create ${roleLabels[authRole]}` : `Sign in as ${roleLabels[authRole]}`}</button></div><button className="google-button" onClick={handleGoogleSignIn} type="button">Continue with Google as {roleLabels[authRole]}</button></form></div>
+}
+
+function DashboardView({ user, profile, changePage, openAuth }) {
+  if (!user) return <section className="dashboard page-view"><div className="dashboard-hero"><p className="eyebrow">Private access</p><h2>Choose an account role to continue</h2><p>Collectors and consignors use separate dashboards so buying activity and listing tools stay cleanly separated.</p><button className="button primary" onClick={openAuth} type="button">Sign in or register</button></div></section>
+  const role = profile?.role || 'collector'
+  return <section className="dashboard page-view"><div className="dashboard-hero"><p className="eyebrow">{roleLabels[role]} dashboard</p><h2>{role === 'consignor' ? 'Manage listings for review' : 'Your private collection desk'}</h2><p>{user.email} is signed in as {roleLabels[role]}. This role is locked to the account profile.</p></div>{role === 'consignor' ? <ConsignorDashboard /> : <CollectorDashboard changePage={changePage} />}</section>
+}
+
+function CollectorDashboard({ changePage }) {
+  return <div className="dashboard-grid"><article><span>Saved reservations</span><strong>0 active</strong><p>Reserved assets and Firestore order history will appear here.</p></article><article><span>Vault preferences</span><strong>Insured delivery</strong><p>Collectors can review checkout, duties, and dimensional shipping estimates.</p></article><article><span>Next step</span><strong>Browse collection</strong><p>Continue shopping authenticated gold, rare coins, and antiques.</p><button onClick={() => changePage('collection')} type="button">Open collection</button></article></div>
+}
+
+function ConsignorDashboard() {
+  return <><div className="dashboard-grid"><article><span>Listing queue</span><strong>3 draft slots</strong><p>Create product drafts with origin, condition, dimensions, imagery, and provenance files.</p></article><article><span>Review status</span><strong>Authentication pending</strong><p>Listings stay private until Aurum review approves them for the marketplace.</p></article><article><span>Fulfillment profile</span><strong>Vault handoff</strong><p>Consignors can define packing needs, insurance value, and dispatch notes.</p></article></div><div className="listing-form"><p className="eyebrow">Draft a listing placeholder</p><div className="checkout-fields"><label>Object name<input placeholder="Swiss bar, Roman coin, estate bracelet" /></label><label>Category<input placeholder="Gold, Coins, Antiques" /></label><label>Estimated value<input placeholder="$2,400" /></label></div><button type="button">Save draft preview</button></div></>
 }
 
 function CartItems({ items, changeQuantity }) {

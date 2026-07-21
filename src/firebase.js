@@ -2,13 +2,14 @@ import { initializeApp } from 'firebase/app'
 import {
   GoogleAuthProvider,
   createUserWithEmailAndPassword,
+  getAdditionalUserInfo,
   getAuth,
   onAuthStateChanged,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
 } from 'firebase/auth'
-import { addDoc, collection, getFirestore, serverTimestamp } from 'firebase/firestore'
+import { addDoc, collection, doc, getDoc, getFirestore, serverTimestamp, setDoc } from 'firebase/firestore'
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -45,14 +46,53 @@ export async function signInWithGoogle() {
   return signInWithPopup(auth, googleProvider)
 }
 
-export async function signInWithEmail(email, password) {
-  requireFirebase()
-  return signInWithEmailAndPassword(auth, email, password)
+async function ensureRoleProfile(user, role) {
+  const profileRef = doc(db, 'profiles', user.uid)
+  const profileSnap = await getDoc(profileRef)
+  if (!profileSnap.exists()) {
+    await setDoc(profileRef, {
+      email: user.email,
+      role,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    })
+    return { email: user.email, role }
+  }
+
+  const profile = profileSnap.data()
+  if (profile.role !== role) {
+    await signOut(auth)
+    throw new Error(`This account is registered as ${profile.role === 'consignor' ? 'a consignor' : 'a collector'}. Choose the matching login role.`)
+  }
+  return profile
 }
 
-export async function createAccount(email, password) {
+export async function getUserProfile(uid) {
   requireFirebase()
-  return createUserWithEmailAndPassword(auth, email, password)
+  const profileSnap = await getDoc(doc(db, 'profiles', uid))
+  return profileSnap.exists() ? profileSnap.data() : null
+}
+
+export async function signInWithEmail(email, password, role) {
+  requireFirebase()
+  const credential = await signInWithEmailAndPassword(auth, email, password)
+  await ensureRoleProfile(credential.user, role)
+  return credential
+}
+
+export async function createAccount(email, password, role) {
+  requireFirebase()
+  const credential = await createUserWithEmailAndPassword(auth, email, password)
+  await ensureRoleProfile(credential.user, role)
+  return credential
+}
+
+export async function signInWithGoogleRole(role) {
+  requireFirebase()
+  const credential = await signInWithPopup(auth, googleProvider)
+  const isNewUser = getAdditionalUserInfo(credential)?.isNewUser
+  await ensureRoleProfile(credential.user, role)
+  return { credential, isNewUser }
 }
 
 export async function signOutUser() {
