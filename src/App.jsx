@@ -67,6 +67,33 @@ function rankProduct(product, query) {
   }, haystack.includes(normalizedQuery) ? 10 : 0)
 }
 
+function validateAuthForm({ email, password }, mode) {
+  const trimmedEmail = email.trim()
+  if (!trimmedEmail) return 'Enter your email address.'
+  if (!/^\S+@\S+\.\S+$/.test(trimmedEmail)) return 'Enter a valid email address, like name@example.com.'
+  if (!password) return 'Enter your password.'
+  if (mode === 'create' && password.length < 8) return 'Use at least 8 characters for your password.'
+  if (mode === 'create' && !/[A-Z]/.test(password)) return 'Add at least one uppercase letter to your password.'
+  if (mode === 'create' && !/[a-z]/.test(password)) return 'Add at least one lowercase letter to your password.'
+  if (mode === 'create' && !/[0-9]/.test(password)) return 'Add at least one number to your password.'
+  return ''
+}
+
+function friendlyAuthError(error) {
+  const code = error?.code || ''
+  const messages = {
+    'auth/invalid-email': 'Enter a valid email address, like name@example.com.',
+    'auth/missing-password': 'Enter your password.',
+    'auth/weak-password': 'Use a stronger password with at least 8 characters, including letters and a number.',
+    'auth/email-already-in-use': 'An account already exists for this email. Try signing in instead.',
+    'auth/user-not-found': 'No account was found for this email. Create an account first.',
+    'auth/wrong-password': 'That password does not match this account.',
+    'auth/invalid-credential': 'The email or password is incorrect.',
+    'auth/popup-closed-by-user': 'Google sign-in was closed before it finished.',
+  }
+  return messages[code] || error?.message?.replace(/^Firebase:\s*/i, '') || 'Something went wrong. Please try again.'
+}
+
 function App() {
   const [activePage, setActivePage] = useState('home')
   const [activeCategory, setActiveCategory] = useState('All')
@@ -207,13 +234,18 @@ function App() {
   async function handleAuthSubmit(event) {
     event.preventDefault()
     setAuthError('')
+    const validationMessage = validateAuthForm(authForm, authMode)
+    if (validationMessage) {
+      setAuthError(validationMessage)
+      return
+    }
     try {
-      if (authMode === 'create') await createAccount(authForm.email, authForm.password, authRole)
-      else await signInWithEmail(authForm.email, authForm.password, authRole)
+      if (authMode === 'create') await createAccount(authForm.email.trim(), authForm.password, authRole)
+      else await signInWithEmail(authForm.email.trim(), authForm.password, authRole)
       setAuthOpen(false)
       setActivePage('dashboard')
     } catch (error) {
-      setAuthError(error.message)
+      setAuthError(friendlyAuthError(error))
     }
   }
 
@@ -224,7 +256,7 @@ function App() {
       setAuthOpen(false)
       setActivePage('dashboard')
     } catch (error) {
-      setAuthError(error.message)
+      setAuthError(friendlyAuthError(error))
     }
   }
 
@@ -311,7 +343,7 @@ function AuthModal({ authMode, setAuthMode, authRole, setAuthRole, authForm, set
   const roleCopy = authRole === 'consignor'
     ? { title: 'Consignor desk', text: 'For approved partners listing gold, coins, antiques, provenance files, and fulfillment details.' }
     : { title: 'Collector account', text: 'For buyers reserving assets, saving carts, and tracking insured checkout reservations.' }
-  return <div className="checkout-modal" role="dialog" aria-modal="true" aria-label="Account sign in"><form className="checkout-card auth-card" onSubmit={handleAuthSubmit}><button className="modal-close" onClick={close} type="button">Close</button><p className="eyebrow">Choose account type</p><h2>{authMode === 'create' ? `Create ${roleLabels[authRole]} account` : `Sign in as ${roleLabels[authRole]}`}</h2><p className="firebase-note">{roleCopy.text} {firebaseReady ? 'Firebase Auth will lock this email to the selected role.' : 'Add Firebase env values to .env.local and Vercel before live sign-in works.'}</p><div className="role-switch" role="tablist" aria-label="Account type"><button className={authRole === 'collector' ? 'active' : ''} onClick={() => setAuthRole('collector')} type="button"><span>Collector</span><small>Buy and reserve</small></button><button className={authRole === 'consignor' ? 'active' : ''} onClick={() => setAuthRole('consignor')} type="button"><span>Consignor</span><small>List inventory</small></button></div><div className="role-context"><strong>{roleCopy.title}</strong><span>{authMode === 'create' ? 'Registration permanently assigns this role to the account.' : 'Use the same role you selected during registration.'}</span></div><div className="checkout-fields auth-fields"><label>Email<input value={authForm.email} onChange={(event) => setAuthForm((form) => ({ ...form, email: event.target.value }))} placeholder="you@example.com" type="email" /></label><label>Password<input value={authForm.password} onChange={(event) => setAuthForm((form) => ({ ...form, password: event.target.value }))} placeholder="At least 6 characters" type="password" /></label></div>{authError && <p className="auth-error">{authError}</p>}<div className="modal-actions auth-actions"><button onClick={() => setAuthMode((mode) => mode === 'create' ? 'sign-in' : 'create')} type="button">{authMode === 'create' ? 'Use sign in' : 'Create account'}</button><button type="submit">{authMode === 'create' ? `Create ${roleLabels[authRole]}` : `Sign in as ${roleLabels[authRole]}`}</button></div><button className="google-button" onClick={handleGoogleSignIn} type="button">Continue with Google as {roleLabels[authRole]}</button></form></div>
+  return <div className="checkout-modal" role="dialog" aria-modal="true" aria-label="Account sign in"><form className="checkout-card auth-card" onSubmit={handleAuthSubmit} noValidate><button className="modal-close" onClick={close} type="button">Close</button><p className="eyebrow">Choose account type</p><h2>{authMode === 'create' ? `Create ${roleLabels[authRole]} account` : `Sign in as ${roleLabels[authRole]}`}</h2><p className="firebase-note">{roleCopy.text} {firebaseReady ? 'Firebase Auth will lock this email to the selected role.' : 'Add Firebase env values to .env.local and Vercel before live sign-in works.'}</p><div className="role-switch" role="tablist" aria-label="Account type"><button className={authRole === 'collector' ? 'active' : ''} onClick={() => setAuthRole('collector')} type="button"><span>Collector</span><small>Buy and reserve</small></button><button className={authRole === 'consignor' ? 'active' : ''} onClick={() => setAuthRole('consignor')} type="button"><span>Consignor</span><small>List inventory</small></button></div><div className="role-context"><strong>{roleCopy.title}</strong><span>{authMode === 'create' ? 'Registration permanently assigns this role to the account.' : 'Use the same role you selected during registration.'}</span></div><div className="checkout-fields auth-fields"><label>Email<input value={authForm.email} onChange={(event) => setAuthForm((form) => ({ ...form, email: event.target.value }))} placeholder="you@example.com" type="email" /></label><label>Password<input value={authForm.password} onChange={(event) => setAuthForm((form) => ({ ...form, password: event.target.value }))} placeholder={authMode === 'create' ? '8+ chars, upper, lower, number' : 'Enter your password'} type="password" /></label></div>{authError && <p className="auth-error" role="alert">{authError}</p>}<div className="modal-actions auth-actions"><button onClick={() => setAuthMode((mode) => mode === 'create' ? 'sign-in' : 'create')} type="button">{authMode === 'create' ? 'Use sign in' : 'Create account'}</button><button type="submit">{authMode === 'create' ? `Create ${roleLabels[authRole]}` : `Sign in as ${roleLabels[authRole]}`}</button></div><button className="google-button" onClick={handleGoogleSignIn} type="button">Continue with Google as {roleLabels[authRole]}</button></form></div>
 }
 
 function DashboardView({ user, profile, changePage, openAuth }) {
