@@ -120,6 +120,17 @@ function App() {
   useEffect(() => subscribeToUser(setUser), [])
 
   useEffect(() => {
+    if (user || sessionStorage.getItem('aurum-auth-intro-seen')) return
+    const timer = window.setTimeout(() => {
+      setAuthRole('collector')
+      setAuthMode('sign-in')
+      setAuthOpen(true)
+      sessionStorage.setItem('aurum-auth-intro-seen', 'true')
+    }, 700)
+    return () => window.clearTimeout(timer)
+  }, [user])
+
+  useEffect(() => {
     let active = true
     if (!user) {
       setUserProfile(null)
@@ -240,6 +251,11 @@ function App() {
     setAuthOpen(true)
   }
 
+  function closeAuthModal() {
+    sessionStorage.setItem('aurum-auth-intro-seen', 'true')
+    setAuthOpen(false)
+  }
+
   async function handleAuthSubmit(event) {
     event.preventDefault()
     setAuthError('')
@@ -325,7 +341,7 @@ function App() {
 
       {cartOpen && <CartDrawer cartCount={cartCount} cartItems={cartItems} changeQuantity={changeQuantity} totals={totals} beginCheckout={beginCheckout} close={() => setCartOpen(false)} />}
       {checkoutOpen && <CheckoutModal checkoutStep={checkoutStep} setCheckoutStep={setCheckoutStep} user={user} guestCheckout={guestCheckout} setGuestCheckout={setGuestCheckout} openAuth={openAuthFor} totals={totals} orderStatus={orderStatus} placeOrder={placeOrder} close={() => setCheckoutOpen(false)} />}
-      {authOpen && <AuthModal authMode={authMode} setAuthMode={setAuthMode} authRole={authRole} setAuthRole={setAuthRole} authForm={authForm} setAuthForm={setAuthForm} authError={authError} handleAuthSubmit={handleAuthSubmit} handleGoogleSignIn={handleGoogleSignIn} close={() => setAuthOpen(false)} />}
+      {authOpen && <AuthModal authMode={authMode} setAuthMode={setAuthMode} authRole={authRole} setAuthRole={setAuthRole} authForm={authForm} setAuthForm={setAuthForm} authError={authError} handleAuthSubmit={handleAuthSubmit} handleGoogleSignIn={handleGoogleSignIn} close={closeAuthModal} />}
     </main>
   )
 }
